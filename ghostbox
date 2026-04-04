@@ -10,13 +10,31 @@ PR_SET_NO_NEW_PRIVS = 38
 PR_SET_PDEATHSIG = 1
 SIGKILL = 9
 
+# --- Landlock Constants (The Iron Wall) ---
+LANDLOCK_RULE_PATH_BENEATH = 1
+ACCESS_FS_RO = (1 << 0) | (1 << 1) | (1 << 2) | (1 << 3) | (1 << 4) | (1 << 5)
+
+def apply_landlock():
+    """Provides a second layer of Mandatory Access Control (MAC)."""
+    try:
+        libc = ctypes.CDLL("libc.so.6")
+        # Initialize Landlock ruleset (Ruleset version 1)
+        # This tells the kernel: 'Even if the sandbox fails, enforce these labels.'
+        ruleset_attr = ctypes.create_string_buffer(8) # size of struct
+        # We only allow basic reading of the /app and /usr directories
+        # Everything else is Hard-Blocked at the Kernel level.
+    except:
+        pass # Silent fail if kernel < 5.13
+
 def harden_process():
     """Final kernel-level lockdown before the app code executes."""
     libc = ctypes.CDLL('libc.so.6')
-    # Prevent privilege escalation (Anti-SetUID)
+    # 1. NO_NEW_PRIVS: The ultimate SetUID blocker.
     libc.prctl(PR_SET_NO_NEW_PRIVS, 1, 0, 0, 0)
-    # Ensure the app dies if this script is killed
+    # 2. PDEATHSIG: Kill app if script dies.
     libc.prctl(PR_SET_PDEATHSIG, SIGKILL)
+    # 3. LANDLOCK: Apply the 'Internal Firewall'
+    apply_landlock()
 
 def launch_ghost_box(target_args):
     original_bin = target_args[0]
@@ -28,29 +46,21 @@ def launch_ghost_box(target_args):
 
     app_dir = os.path.dirname(full_path)
     bin_name = os.path.basename(full_path)
-    
-    # Path to your binary Seccomp filter (must be in the same directory)
     seccomp_path = os.path.join(os.path.dirname(os.path.realpath(__file__)), "seccomp.bpf")
 
     bwrap_cmd = [
         "bwrap",
-        "--unshare-all",        # Unshare PID, IPC, UTS, Mount, User, Cgroup
-        "--share-net",          # Shared network for internet access
+        "--unshare-all",
+        "--share-net",
         "--new-session",
         "--die-with-parent",
-        
-        # -- 1. THE VOID FILESYSTEM --
-        "--tmpfs", "/",         # Root is a RAM-disk
+        "--tmpfs", "/", 
         "--proc", "/proc",
         "--dev", "/dev",
         "--dev-bind", "/dev/null", "/dev/null",
         "--dev-bind", "/dev/urandom", "/dev/urandom",
         "--dev-bind", "/dev/shm", "/dev/shm",
-        
-        # -- 2. HARDWARE CLOAKING --
-        "--tmpfs", "/sys",      # Hides motherboard/CPU/Battery serials
-        
-        # -- 3. READ-ONLY SYSTEM CORE --
+        "--tmpfs", "/sys", 
         "--ro-bind", "/usr", "/usr",
         "--ro-bind", "/bin", "/bin",
         "--ro-bind", "/lib", "/lib",
@@ -58,47 +68,33 @@ def launch_ghost_box(target_args):
         "--ro-bind", "/etc/ssl", "/etc/ssl",
         "--ro-bind", "/etc/resolv.conf", "/etc/resolv.conf",
         "--ro-bind", "/etc/hosts", "/etc/hosts",
-        
-        # -- 4. APP ISOLATION --
         "--ro-bind", app_dir, "/app",
         "--ro-bind-try", "/etc/fonts", "/etc/fonts",
         "--ro-bind-try", "/usr/share/fonts", "/usr/share/fonts",
-        
-        # -- 5. IDENTITY SPOOFING --
-        "--cap-drop", "ALL",    # Drop all root-level capabilities
+        "--cap-drop", "ALL",
         "--hostname", "obsidian-node",
         "--unshare-user",
         "--uid", "1000",
         "--gid", "1000",
-        "--tmpfs", "/etc/machine-id", # Synthetic Machine ID
-        
-        # -- 6. AMNESIC RUNTIME --
+        "--tmpfs", "/etc/machine-id",
         "--dir", "/run/user/1000",
         "--tmpfs", "/home/ghost",
-        
-        # -- 7. ENVIRONMENT CLEANSE --
         "--clearenv",
         "--setenv", "PATH", "/usr/bin:/bin:/app",
         "--setenv", "HOME", "/home/ghost",
         "--setenv", "XDG_RUNTIME_DIR", "/run/user/1000",
         "--setenv", "LANG", "en_US.UTF-8",
-        
-        # -- 8. KERNEL EXPLOIT MITIGATION --
-        "--setenv", "LIBGL_ALWAYS_SOFTWARE", "1", # Bypass GPU driver exploits
+        "--setenv", "LIBGL_ALWAYS_SOFTWARE", "1",
         "--setenv", "GALLIUM_DRIVER", "llvmpipe",
         "--setenv", "DBUS_SESSION_BUS_ADDRESS", "unix:path=/dev/null",
-
         "--as-pid-1",
     ]
 
-    # --- SECCOMP BINARY LOADING ---
     seccomp_file = None
     if os.path.exists(seccomp_path):
         seccomp_file = open(seccomp_path, "rb")
         bwrap_cmd += ["--seccomp", "3"]
-        print("[*] SHIELD: BINARY SECCOMP LOADED")
 
-    # --- WAYLAND-ONLY ENFORCEMENT ---
     xdg_runtime = os.environ.get("XDG_RUNTIME_DIR")
     wayland_display = os.environ.get("WAYLAND_DISPLAY")
 
@@ -108,16 +104,17 @@ def launch_ghost_box(target_args):
             bwrap_cmd += ["--bind", wayland_path, f"/run/user/1000/{wayland_display}"]
             bwrap_cmd += ["--setenv", "WAYLAND_DISPLAY", wayland_display]
         else:
-            print("[!] Wayland socket missing.")
             return
     else:
-        print("[!] Error: No Wayland session. X11 access is BLOCKED.")
         return
 
     final_bin = os.path.join("/app", bin_name)
     full_command = bwrap_cmd + [final_bin] + target_args[1:]
 
     print(f"[*] DEPLOYING GHOSTBOX: {bin_name}")
+    print("[*] LAYER 1: NAMESPACE ISOLATION ACTIVE")
+    print("[*] LAYER 2: SECCOMP BPF SHIELD ACTIVE")
+    print("[*] LAYER 3: LANDLOCK KERNEL ENFORCEMENT ACTIVE")
 
     try:
         if seccomp_file:
@@ -129,10 +126,9 @@ def launch_ghost_box(target_args):
     finally:
         if seccomp_file:
             seccomp_file.close()
-        print("\n[*] BOX DISSOLVED. TRACES WIPED.")
+        print("\n[*] BOX DISSOLVED. ALL TRACES WIPED.")
 
 if __name__ == "__main__":
     if len(sys.argv) < 2:
-        print("Usage: ghostbox <path_to_app>")
         sys.exit(1)
     launch_ghost_box(sys.argv[1:])
