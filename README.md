@@ -1,112 +1,64 @@
-📦 GhostBox
-The Hardened, Zero-Persistence Sandbox for Kali & Parrot OS
+Obsidian-Node: The GhostBox
+"What the Sovereigns haven't seen, they cannot track."
 
-GhostBox is a specialized Python-based security wrapper designed to isolate untrusted tools and binaries within Kali Linux and Parrot OS. Built on the industrial-strength Bubblewrap (bwrap) core, it ensures that what happens in the box, stays in the box.
-🚀 Key Features
+Obsidian-Node (GhostBox) is a high-security, unprivileged, and amnesic sandboxing tool for Linux. Built on the bubblewrap (bwrap) engine, it is designed for users who require total digital sovereignty, anti-forensic persistence, and hardware-level anonymity.
 
-    Volatile RAM-Home: Mounts a tmpfs over your home directory. All data created during the session evaporates the moment you close the tool.
+While traditional tools like Flatpak focus on convenience, Obsidian-Node focuses on The Void: ensuring that every application runs in a temporary, cloaked environment that evaporates instantly upon closing.
+🛠 Key Features
 
-    Zero-Knowledge Isolation: Your real files, SSH keys, and browser data are physically invisible to the sandboxed process.
+    Amnesic Filesystem: Uses --tmpfs for / and /home. Every file, cookie, and log created during the session exists only in RAM and is wiped on exit.
 
-    Kernel Hardening: Uses --cap-drop ALL to strip every kernel capability. Even if a tool gains "root" inside the box, it is powerless against your host.
+    Hardware Cloaking: Masks your motherboard serials, PCI bus, and firmware by black-holing /sys.
 
-    Identity Masking: Automatically spoofs the hostname to ghost-box and unshares PID namespaces, preventing the tool from seeing other running programs.
+    GPU Stealth: Forces LLVMpipe software rendering via LIBGL_ALWAYS_SOFTWARE=1, preventing hardware-based browser fingerprinting.
 
-⚖️ Why GhostBox?
+    Zero-Privilege Architecture: Unlike Firejail, it does not use SUID binaries. It leverages unprivileged user namespaces, meaning the sandbox itself has no path to root.
 
-GhostBox was built for security researchers who find Firejail too bloated or risky due to its SUID-root architecture.
-Feature	GhostBox	Firejail / Others
-Attack Surface	Minimal: Uses unprivileged namespaces.	Large: Uses SUID-root binaries.
-Persistence	None: Everything runs in RAM.	Optional: Often writes to disk by default.
-Speed	Native: Zero-overhead kernel isolation.	Native: Similar performance.
-Simplicity	High: One script, no complex profiles.	Low: Thousands of complex config files.
-🛠 Pros & Cons
+    Kernel Hardening: Employs PR_SET_NO_NEW_PRIVS to ensure sandboxed processes can never escalate privileges, even if a vulnerability is found.
 
-✅ Pros
+    Network Sanitization: Restricts the environment to minimalist /etc/ maps to prevent local network discovery and DNS leaking.
 
-    Near-Native Performance: No VM overhead.
+⚖️ The "Ghost" Comparison
 
-    Read-Only Core: System directories (/usr, /bin, /etc) are locked as Read-Only.
+Why Obsidian-Node is the superior choice for absolute privacy:
+Feature	Obsidian-Node	Firejail	AppArmor	SELinux
+Philosophy	Total Amnesia	Ease of Use	Path Restriction	Label Enforcement
+Privilege	🏆 Unprivileged	❌ SUID Root	Kernel-Level	Kernel-Level
+Hardware Hiding	🏆 Full Masking	Partial	None	None
+Forensic Trace	🏆 Zero	Persistent Cache	Persistent	Persistent
+Attack Surface	Minimal (bwrap)	❌ High (CVE prone)	Low	High Complexity
+Why it beats the "Industry Standards":
 
-    Network Ready: Supports tools like nmap while maintaining total filesystem isolation.
+    Vs. Firejail: Firejail is an SUID-root binary. If a hacker finds a bug in Firejail, they get root access to your host. Obsidian-Node uses bwrap, which is audited, minimalist, and runs entirely in user-space.
 
-    Automated Cleanup: "Die-with-parent" logic prevents zombie processes.
+    Vs. AppArmor: AppArmor is a passive "wall." It stops an app from touching a folder, but it doesn't hide your identity. It won't stop an app from seeing your real GPU or your motherboard ID.
 
-❌ Cons
+    Vs. SELinux: SELinux is incredibly complex and often "noisy." Obsidian-Node is "Default-Deny"—if you didn't explicitly map a resource in the script, it simply does not exist to the application.
 
-    Stateless: You must manually move files out if you want to save them.
+🚀 Installation
 
-    CLI Focused: No GUI configurator; designed for the terminal.
+    Install Bubblewrap:
+    Bash
 
-    OS Specific: Optimized specifically for Debian-based security distros.
+sudo apt install bubblewrap  # Debian/Ubuntu
+sudo pacman -S bubblewrap    # Arch
 
-📥 Installation
+Deploy GhostBox:
+Move your ghostbox.py to /usr/local/bin/ghostbox and make it executable:
 Bash
 
-# 1. Install dependencies
-sudo apt update && sudo apt install bwrap -y
+sudo chmod +x /usr/local/bin/ghostbox
+sudo chown root:root /usr/local/bin/ghostbox
 
-# 2. Clone and make executable
-chmod +x ghostbox
-
-# 3. (Optional) Move to your path
-sudo mv ghostbox /usr/local/bin/
-
-📖 Usage
-
-Simply prefix any command with ghostbox:
+Usage:
 Bash
 
-# Safely run a suspicious python script
-ghostbox python3 exploit.py
+    ghostbox firefox
+    # or
+    ghostbox bash  # Enter a fully sandboxed shell
 
-# Open a browser with an invisible home directory
-ghostbox firefox-esr
+🛡 Security Mandate
 
-# Run network tools with zero host exposure
-ghostbox nmap -sV <target>GhostBox: The Hardened Sandbox for Kali Linux & Parrot OS
+Obsidian-Node is designed for Wayland environments. If you are using X11, be aware that the X11 protocol allows any window to log the keystrokes of another. For true isolation, use a Wayland compositor (GNOME, KDE Plasma 6, Sway).
 
-GhostBox is a specialized, Python-powered isolation wrapper designed specifically for the security-centric ecosystems of Kali Linux and Parrot OS. While most sandboxes are built for general desktop privacy, GhostBox is engineered for the "Live Environment" mindset: it provides a high-security, zero-persistence container for running untrusted tools, scripts, and binaries without risking your host’s integrity.
-
-Built upon the industrial-grade Bubblewrap (bwrap) core, GhostBox creates an invisible wall between your sensitive OS and the tools you execute.
-Why GhostBox is Better Than Firejail
-
-While Firejail is a popular choice, it has historically suffered from a large attack surface due to its complex SUID-root architecture. GhostBox takes a more modern, "less-is-more" approach:
-
-    Minimized Attack Surface: GhostBox utilizes unprivileged user namespaces via bwrap. It doesn’t rely on a massive SUID-root binary, significantly reducing the risk of a sandbox escape.
-
-    Volatile Filesystem: Unlike Firejail, which often maps your real home directory, GhostBox mounts a tmpfs (RAM-disk) over /home. The application sees an empty, fresh environment. The moment the process ends, every file created or modified vanishes from existence.
-
-    Aggressive Capability Stripping: GhostBox doesn't just "limit" permissions; it uses --cap-drop ALL to strip the process of every kernel capability. Even if a process gains "root" inside the box, it remains powerless against your hardware and kernel.
-
-    No Profile Bloat: Firejail relies on thousands of specific application profiles that can become outdated. GhostBox provides a standardized, hardened "Security First" environment that works universally for CLI tools.
-
-Pros & Cons
-Pros	Cons
-Instant Ephemerality: All session data is stored in RAM and purged on exit.	No GUI Configurator: Managed entirely via terminal (ideal for Kali/Parrot users).
-Identity Masking: Spoofer logic hides your real hostname and PID list.	Read-Only Core: Prevents tools from updating system-wide components.
-Near-Native Speed: Leverages kernel namespaces rather than heavy VM emulation.	CLI Knowledge: Requires a basic understanding of how to pass arguments via terminal.
-Leak-Proof: Prevents processes from "seeing" your real home files or SSH keys.	Stateless: You must manually move files out if you wish to keep them.
-Technical Guardrails
-
-GhostBox enforces a strict security protocol for every execution:
-
-    Filesystem Isolation: Core system paths (/usr, /bin, /lib, /etc) are mounted as Read-Only.
-
-    PID Unsharing: The sandboxed tool cannot see or interact with any other programs running on your system.
-
-    Network Control: Provides a shared network stack for tools like nmap or msfconsole, but keeps the underlying identity (hostname) masked as ghost-box.
-
-    Death-Parent Logic: If the terminal or parent process is killed, the sandbox and all its children are instantly terminated—no "zombie" processes left behind.
-
-Quick Start
-Bash
-
-# Analyze a suspicious binary
-ghostbox ./unknown_tool
-
-# Run a browser without exposing your local files
-ghostbox firefox-esr --private-window
-
-# Perform a scan with zero local traces
-ghostbox nmap -Pn <target_ip>
+The Sovereigns are watching. Give them nothing to see.
