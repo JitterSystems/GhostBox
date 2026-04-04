@@ -11,8 +11,11 @@ PR_SET_PDEATHSIG = 1
 SIGKILL = 9
 
 def harden_process():
+    """Final kernel-level lockdown before the app code executes."""
     libc = ctypes.CDLL('libc.so.6')
+    # Prevent privilege escalation (Anti-SetUID)
     libc.prctl(PR_SET_NO_NEW_PRIVS, 1, 0, 0, 0)
+    # Ensure the app dies if this script is killed
     libc.prctl(PR_SET_PDEATHSIG, SIGKILL)
 
 def launch_ghost_box(target_args):
@@ -25,107 +28,111 @@ def launch_ghost_box(target_args):
 
     app_dir = os.path.dirname(full_path)
     bin_name = os.path.basename(full_path)
+    
+    # Path to your binary Seccomp filter (must be in the same directory)
+    seccomp_path = os.path.join(os.path.dirname(os.path.realpath(__file__)), "seccomp.bpf")
 
     bwrap_cmd = [
         "bwrap",
-        "--unshare-all",
-        "--share-net",          # <--- Share the network namespace
+        "--unshare-all",        # Unshare PID, IPC, UTS, Mount, User, Cgroup
+        "--share-net",          # Shared network for internet access
         "--new-session",
         "--die-with-parent",
         
         # -- 1. THE VOID FILESYSTEM --
-        "--tmpfs", "/", 
+        "--tmpfs", "/",         # Root is a RAM-disk
         "--proc", "/proc",
-        
-        # -- 2. MINIMAL DEVICE MAPPING (ANTI-DMA) --
         "--dev", "/dev",
         "--dev-bind", "/dev/null", "/dev/null",
         "--dev-bind", "/dev/urandom", "/dev/urandom",
         "--dev-bind", "/dev/shm", "/dev/shm",
         
-        # -- 3. HARDWARE BUS CLOAKING --
-        "--tmpfs", "/sys",      # Hides Motherboard/PCI/Firmware from app
+        # -- 2. HARDWARE CLOAKING --
+        "--tmpfs", "/sys",      # Hides motherboard/CPU/Battery serials
         
-        # -- 4. SYSTEM CORE (Read-Only) --
+        # -- 3. READ-ONLY SYSTEM CORE --
         "--ro-bind", "/usr", "/usr",
         "--ro-bind", "/bin", "/bin",
         "--ro-bind", "/lib", "/lib",
         "--ro-bind", "/lib64", "/lib64",
         "--ro-bind", "/etc/ssl", "/etc/ssl",
-        
-        # --- 5. THE NETWORK FIX (Essential Maps) ---
         "--ro-bind", "/etc/resolv.conf", "/etc/resolv.conf",
         "--ro-bind", "/etc/hosts", "/etc/hosts",
-        "--ro-bind-try", "/etc/nsswitch.conf", "/etc/nsswitch.conf",
         
-        # -- 6. APP ISOLATION --
+        # -- 4. APP ISOLATION --
         "--ro-bind", app_dir, "/app",
         "--ro-bind-try", "/etc/fonts", "/etc/fonts",
         "--ro-bind-try", "/usr/share/fonts", "/usr/share/fonts",
         
-        # -- 7. IDENTITY & PRIVACY --
-        "--cap-drop", "ALL",
+        # -- 5. IDENTITY SPOOFING --
+        "--cap-drop", "ALL",    # Drop all root-level capabilities
         "--hostname", "obsidian-node",
         "--unshare-user",
         "--uid", "1000",
         "--gid", "1000",
-        "--tmpfs", "/etc/machine-id",
+        "--tmpfs", "/etc/machine-id", # Synthetic Machine ID
         
-        # -- 8. AMNESIC RUNTIME --
+        # -- 6. AMNESIC RUNTIME --
         "--dir", "/run/user/1000",
-        "--dir", "/home/ghost",
+        "--tmpfs", "/home/ghost",
         
-        # -- 9. THE "GHOST" ENVIRONMENT --
+        # -- 7. ENVIRONMENT CLEANSE --
         "--clearenv",
         "--setenv", "PATH", "/usr/bin:/bin:/app",
         "--setenv", "HOME", "/home/ghost",
         "--setenv", "XDG_RUNTIME_DIR", "/run/user/1000",
         "--setenv", "LANG", "en_US.UTF-8",
         
-        # FORCE SOFTWARE GPU
-        "--setenv", "LIBGL_ALWAYS_SOFTWARE", "1",
+        # -- 8. KERNEL EXPLOIT MITIGATION --
+        "--setenv", "LIBGL_ALWAYS_SOFTWARE", "1", # Bypass GPU driver exploits
         "--setenv", "GALLIUM_DRIVER", "llvmpipe",
         "--setenv", "DBUS_SESSION_BUS_ADDRESS", "unix:path=/dev/null",
 
         "--as-pid-1",
     ]
 
-    # Display Logic (Wayland > X11)
+    # --- SECCOMP BINARY LOADING ---
+    seccomp_file = None
+    if os.path.exists(seccomp_path):
+        seccomp_file = open(seccomp_path, "rb")
+        bwrap_cmd += ["--seccomp", "3"]
+        print("[*] SHIELD: BINARY SECCOMP LOADED")
+
+    # --- WAYLAND-ONLY ENFORCEMENT ---
     xdg_runtime = os.environ.get("XDG_RUNTIME_DIR")
     wayland_display = os.environ.get("WAYLAND_DISPLAY")
-    x11_display = os.environ.get("DISPLAY", ":0")
 
-    wayland_active = False
     if xdg_runtime and wayland_display:
         wayland_path = os.path.join(xdg_runtime, wayland_display)
         if os.path.exists(wayland_path):
             bwrap_cmd += ["--bind", wayland_path, f"/run/user/1000/{wayland_display}"]
             bwrap_cmd += ["--setenv", "WAYLAND_DISPLAY", wayland_display]
-            wayland_active = True
-
-    if not wayland_active:
-        socket_num = x11_display.replace(":", "").split(".")[0]
-        x11_socket = f"/tmp/.X11-unix/X{socket_num}"
-        if os.path.exists(x11_socket):
-            bwrap_cmd += ["--bind", x11_socket, x11_socket]
-            bwrap_cmd += ["--setenv", "DISPLAY", x11_display]
+        else:
+            print("[!] Wayland socket missing.")
+            return
+    else:
+        print("[!] Error: No Wayland session. X11 access is BLOCKED.")
+        return
 
     final_bin = os.path.join("/app", bin_name)
     full_command = bwrap_cmd + [final_bin] + target_args[1:]
 
-    print(f"[*] DEPLOYING OBSIDIAN BOX: {bin_name}")
-    print("[*] STATUS: INTERNET RESTORED | HARDWARE BUS HIDDEN")
+    print(f"[*] DEPLOYING GHOSTBOX: {bin_name}")
 
     try:
-        subprocess.run(full_command, preexec_fn=harden_process)
+        if seccomp_file:
+            subprocess.run(full_command, preexec_fn=harden_process, pass_fds=[3])
+        else:
+            subprocess.run(full_command, preexec_fn=harden_process)
     except Exception as e:
         print(f"[!] KERNEL BLOCK: {e}")
     finally:
-        print("\n[*] BOX DISSOLVED.")
+        if seccomp_file:
+            seccomp_file.close()
+        print("\n[*] BOX DISSOLVED. TRACES WIPED.")
 
 if __name__ == "__main__":
     if len(sys.argv) < 2:
         print("Usage: ghostbox <path_to_app>")
         sys.exit(1)
     launch_ghost_box(sys.argv[1:])
-
