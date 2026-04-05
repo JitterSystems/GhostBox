@@ -4,9 +4,15 @@ Ghostbox is an ultra-hardened, amnesic application sandbox for Linux. It creates
 🚀 The 4-Wall Defense
 Wall	Component	Protection Level	Technical Detail
 1	Amnesic FS	Extreme	Root (/) and Home are tmpfs (RAM). Data vanishes on exit.
-2	Hardware Cloak	High	Hides /sys. Masks CPU, Motherboard, and Battery IDs.
-3	Binary Sentinel	Hardened	Binary BPF filter kills the app if it touches risky Kernel functions.
+
+2	Binary Sentinel	Hardened	Binary BPF filter kills the app if it touches risky Kernel functions.
+
+3.	Landlock >> Prevents anything outside the ghostbox/sandbox from being touched
+
 4	Kernel Lockdown	Total	Forces Integrity Lockdown to prevent Root-level memory modifications.
+
+BONUS Ones >>  	Hardware Cloak	High	Hides /sys. Masks CPU, Motherboard, and Battery IDs.
+
 🛠️ Requirements & Dependencies
 
 You must install these dependencies on your host system to build the Shield and run the Orchestrator:
@@ -42,26 +48,26 @@ python3 ghostbox.py /usr/bin/curl -- https://checkip.amazonaws.com
 
 📂 Repository Structure
 
-    ghostbox.py: The Orchestrator. Manages namespaces, RAM mounts, and kernel lockdown logic.
+ghostbox.py: The Orchestrator. Manages namespaces, RAM mounts, and kernel lockdown logic.
 
-    make_bpf.c: The C blueprint for the Seccomp filter.
+make_bpf.c: The C blueprint for the Seccomp filter.
 
-    seccomp.bpf: The compiled binary "Shield" used by the kernel to block dangerous syscalls.
+seccomp.bpf: The compiled binary "Shield" used by the kernel to block dangerous syscalls.
 
 ⚠️ Security Policies
 
-    Zero Persistence: Any files downloaded or settings changed are purged instantly when the box dissolves.
+Zero Persistence: Any files downloaded or settings changed are purged instantly when the box dissolves.
 
-    Hardware Anonymization: The app sees a generic "obsidian-node" hostname and a masked /sys directory.
+Hardware Anonymization: The app sees a generic "obsidian-node" hostname and a masked /sys directory.
 
-    Wayland Only: X11 is strictly discouraged/blocked where possible to prevent cross-window keylogging and screen scraping.
+Wayland Only: X11 is strictly discouraged/blocked where possible to prevent cross-window keylogging and screen scraping.
 
-    Privilege Death: Uses NO_NEW_PRIVS to ensure that even if an app finds a vulnerability, it can never escalate to Root.
+Privilege Death: Uses NO_NEW_PRIVS to ensure that even if an app finds a vulnerability, it can never escalate to Root.
 
 🛑 Important Considerations
 
-    Network: Uses --share-net. Your identity is hidden, but your IP is visible to the destination. Use a VPN on the host for total anonymity.
+Network: Uses --share-net. Your identity is hidden, but your IP is visible to the destination. Use a VPN on the host for total anonymity.
 
-    Sudo Requirement: ghostbox.py requires a brief sudo prompt at launch to enable Kernel Lockdown. Once the kernel is locked and the sandbox is built, the application runs as a standard, unprivileged user.
+Sudo Requirement: ghostbox.py requires a brief sudo prompt at launch to enable Kernel Lockdown. Once the kernel is locked and the sandbox is built, the application runs as a standard, unprivileged user.
 
-    Amnesia: If you need to save a file, you must move it out of the sandbox before closing the app, or it will be lost forever.
+Amnesia: If you need to save a file, you must move it out of the sandbox before closing the app, or it will be lost forever.
