@@ -4,13 +4,13 @@ Ghostbox is an ultra-hardened, amnesic application sandbox for Linux. It creates
 🚀 The 4-Wall Defense
 Wall	Component	Protection Level	Technical Detail
 
-1	Amnesic FS	Extreme	Root (/) and Home are tmpfs (RAM). Data vanishes on exit.
+1.	Amnesic FS	Extreme	Root (/) and Home are tmpfs (RAM). Data vanishes on exit.
 
-2	Binary Sentinel	Hardened	Binary BPF filter kills the app if it touches risky Kernel functions.
+2.	Binary Sentinel	Hardened	Binary BPF filter kills the app if it touches risky Kernel functions.
 
 3.	Landlock >> Prevents anything outside the ghostbox/sandbox from being touched
 
-4	Kernel Lockdown	Total	Forces Integrity Lockdown to prevent Root-level memory modifications.
+4.	Kernel Lockdown	Total	Forces Integrity Lockdown to prevent Root-level memory modifications.
 
 BONUS Ones >>  	Hardware Cloak	High	Hides /sys. Masks CPU, Motherboard, and Battery IDs.
 
