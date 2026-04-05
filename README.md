@@ -1,61 +1,84 @@
-hostbox: The Obsidian Node Sandbox 🛡️🌑
+🛡️ Ghostbox: The Obsidian Node Sandbox 🌑
 
-Ghostbox is a high-security, amnesic application sandbox designed for Linux. It leverages Bubblewrap, Linux Namespaces, and a Binary Seccomp BPF filter to create a "digital vacuum" where applications are blind to your real OS, hardware, and identity.
-🚀 Key Features
-Feature	Protection Level	Technical Detail
-Amnesic Filesystem	Extreme	Root (/) and Home are tmpfs (RAM). Everything is destroyed on exit.
-Hardware Cloaking	High	Hides /sys. No motherboard serials, CPU info, or battery IDs.
-Identity Spoofing	Total	Hostname is forced to obsidian-node and UID is mapped to 1000.
-Active Seccomp	Hardened	A binary BPF filter kills the app if it attempts kernel-level exploits.
-Wayland-Only	Safe	X11 is stripped out to prevent cross-window keylogging and spying.
-GPU Shielding	Mitigation	Forces CPU rendering (llvmpipe) to bypass risky GPU drivers.
-🛠️ Installation
+Ghostbox is an ultra-hardened, amnesic application sandbox for Linux. It goes beyond traditional containerization by implementing a 5-Wall Defense System, combining Linux Namespaces, Kernel Lockdown, and a custom Go-based Sentry Kernel that intercepts and spoofs system calls in real-time.
 
-Ensure you have the following dependencies on your host system:
+It creates a "digital vacuum" where applications are blind to your real OS, hardware, and identity.
+🚀 The 5-Wall Defense
+Wall	Component	Protection Level	Technical Detail
+1	Amnesic FS	Extreme	Root (/) and Home are tmpfs (RAM). Data vanishes on exit.
+2	Hardware Cloak	High	Hides /sys. Masks CPU, Motherboard, and Battery IDs.
+3	Active Seccomp	Hardened	Binary BPF filter kills the app if it touches risky Kernel functions.
+4	Kernel Lockdown	Total	Forces Integrity Lockdown to prevent Root-level memory modifications.
+5	The Sentry (Go)	Unbreakable	NEW: A syscall interposer that "lies" to the app and blocks forensics.
+🛠️ Requirements & Dependencies
 
-    bubblewrap
+You must install these dependencies on your host system to build the Sentry and the Shield:
+Bash
 
-    libseccomp-dev (for compiling the shield)
+sudo apt update
+sudo apt install bubblewrap libseccomp-dev gcc golang-go python3
 
-    gcc
-    
-    sudo apt install bubblewrap libseccomp-dev gcc
-
+📥 Installation & Setup
 1. Clone the Repository
 Bash
 
 git clone https://github.com/gothamblvck-coder/ghostbox.git
 cd ghostbox
 
-2. Generate the Binary Shield
+2. Generate the Binary Shield (Wall 3)
 
-To ensure the Seccomp filter matches your specific kernel architecture (e.g., x86_64), compile the BPF binary locally:
+Compile the Seccomp BPF filter to match your specific kernel architecture:
 Bash
 
 gcc make_bpf.c -o make_bpf -lseccomp && ./make_bpf
 
-Note: You can delete the make_bpf executable after this step.
-🖥️ Usage
+3. Build the Sentry Kernel (Wall 5)
 
-Run any application by passing its binary path to the script:
+Compile the Go-based syscall interposer that monitors the sandbox from the outside:
 Bash
 
+go build -o sentry sentry.go
+
+Note: Ensure the sentry binary remains in the same directory as ghostbox.py.
+🖥️ Usage
+
+Pass any application binary path to the Ghostbox engine. The script will automatically trigger the Kernel Lockdown, load the Seccomp Shield, and boot the Sentry Interposer.
+Bash
+
+# Example: Run a browser (Wayland only)
 python3 ghostbox.py /usr/bin/firefox
+
+# Example: Run a terminal tool
+python3 ghostbox.py /usr/bin/curl -- https://checkip.amazonaws.com
 
 📂 Repository Structure
 
-    ghostbox.py: The main engine that handles namespaces and isolation logic.
+ghostbox.py: The Orchestrator. Manages namespaces, mounts, and lockdown logic.
 
-    make_bpf.c: The C source code for the Seccomp filter (the "Blueprint").
+sentry.go: The 5th Wall source. A ptrace-based Go supervisor for syscall spoofing.
 
-    seccomp.bpf: The compiled binary filter used by the kernel (the "Shield").
+sentry: The compiled Sentry binary (The Interposer).
 
-    README.md: This file.
+make_bpf.c: The C blueprint for the Seccomp filter.
 
-⚠️ Important Considerations
+seccomp.bpf: The compiled binary "Shield" used by the kernel.
 
-    No Persistence: Any files downloaded or settings changed inside the box are purged when the application closes.
+⚠️ Anti-Forensic Policies
 
-    Network: This configuration uses --share-net. While your identity is hidden, your public IP remains visible unless you use a VPN on the host.
+Unlike standard sandboxes, Ghostbox employs Active Deception:
 
-    Wayland Only: If your desktop environment uses X11, this sandbox will not launch. This is a deliberate security choice.
+Identity Spoofing: uname and sysinfo calls are intercepted to return generic/fake system data.
+
+Inbound Block: Prevents the application from listening for incoming connections, stopping reverse shells.
+
+Nested Block: Prevents the app from using unshare to hide from the Sentry.
+
+Wayland Only: X11 is strictly forbidden to prevent cross-window keylogging.
+
+🛑 Important Considerations
+
+No Persistence: Any files downloaded or settings changed are purged instantly when the box dissolves.
+
+Network: Uses --share-net. Your identity is hidden, but your IP is visible. Use a VPN on the host for total anonymity.
+
+Sudo Requirement: ghostbox.py requires a brief sudo prompt at launch to enable Kernel Lockdown. Once locked, the app runs with zero privileges.
