@@ -64,7 +64,10 @@ def launch_ghost_box(target_args):
 
     app_dir = os.path.dirname(full_path)
     bin_name = os.path.basename(full_path)
-    seccomp_path = os.path.join(os.path.dirname(os.path.realpath(__file__)), "seccomp.bpf")
+    
+    # Locate seccomp.bpf in the same directory as this script
+    script_dir = os.path.dirname(os.path.realpath(__file__))
+    seccomp_path = os.path.join(script_dir, "seccomp.bpf")
 
     # STEP 2: Building the Bubble (Bubblewrap command)
     bwrap_cmd = [
@@ -111,16 +114,22 @@ def launch_ghost_box(target_args):
     # STEP 3: Loading the Sentinel (Seccomp)
     seccomp_file = None
     if os.path.exists(seccomp_path):
+        print(f"[*] Loading Seccomp Sentinel: {seccomp_path}")
+        # Open the BPF file; we will pass its file descriptor to bwrap
         seccomp_file = open(seccomp_path, "rb")
+        # File descriptor '3' is usually the first available after stdin/out/err
         bwrap_cmd += ["--seccomp", "3"]
+    else:
+        print("[!] Warning: seccomp.bpf not found. Sentinel is INACTIVE.")
 
     # STEP 4: Wayland-Only Protection
     xdg_runtime = os.environ.get("XDG_RUNTIME_DIR")
     wayland_display = os.environ.get("WAYLAND_DISPLAY")
     if xdg_runtime and wayland_display:
         wayland_path = os.path.join(xdg_runtime, wayland_display)
-        bwrap_cmd += ["--bind", wayland_path, f"/run/user/1000/{wayland_display}"]
-        bwrap_cmd += ["--setenv", "WAYLAND_DISPLAY", wayland_display]
+        if os.path.exists(wayland_path):
+            bwrap_cmd += ["--bind", wayland_path, f"/run/user/1000/{wayland_display}"]
+            bwrap_cmd += ["--setenv", "WAYLAND_DISPLAY", wayland_display]
 
     final_bin = os.path.join("/app", bin_name)
     full_command = bwrap_cmd + [final_bin] + target_args[1:]
@@ -128,10 +137,15 @@ def launch_ghost_box(target_args):
     print(f"[*] DEPLOYING GHOSTBOX: {bin_name}")
     try:
         # STEP 5: DROP PRIVILEGES & LAUNCH
-        # preexec_fn drops privileges BEFORE the app code touches the CPU.
-        subprocess.run(full_command, preexec_fn=harden_process, pass_fds=[3] if seccomp_file else [])
+        # pass_fds=[3] ensures the bwrap process can access the seccomp file descriptor
+        subprocess.run(
+            full_command, 
+            preexec_fn=harden_process, 
+            pass_fds=[3] if seccomp_file else []
+        )
     finally:
-        if seccomp_file: seccomp_file.close()
+        if seccomp_file: 
+            seccomp_file.close()
         print("[*] BOX DISSOLVED. AMNESIA COMPLETE.")
 
 if __name__ == "__main__":
