@@ -10,7 +10,7 @@ Wall	Component	Protection Level	Technical Detail
 
 3.	Landlock >> Prevents anything outside the ghostbox/sandbox from being touched
 
-4.	Kernel Lockdown	Total	Forces Integrity Lockdown to prevent Root-level memory modifications.
+4.	Kernel Lockdown	Total	Forced Integrity Lockdown to prevent Root-level memory modifications.
 
 BONUS Ones >>  	Hardware Cloak	High	Hides /sys. Masks CPU, Motherboard, and Battery IDs.
 
