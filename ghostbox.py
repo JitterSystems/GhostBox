@@ -5,73 +5,51 @@ import subprocess
 import shutil
 import ctypes
 
-# --- Kernel Constants ---
+# --- Kernel Safety ---
 PR_SET_PDEATHSIG = 1
 SIGKILL = 9
 
-def enable_kernel_lockdown():
-    lockdown_file = "/sys/kernel/security/lockdown"
-    if not os.path.exists(lockdown_file):
-        return False
-    try:
-        with open(lockdown_file, "r") as f:
-            if "[none]" in f.read():
-                subprocess.run(["sudo", "sh", "-c", f"echo integrity > {lockdown_file}"], 
-                               check=True, capture_output=True)
-        return True
-    except:
-        return False
-
 def harden_process():
-    """Safety net for the child process."""
     try:
         libc = ctypes.CDLL('libc.so.6')
-        # Ensure child dies if parent is killed
         libc.prctl(PR_SET_PDEATHSIG, SIGKILL)
-    except:
-        os._exit(1)
+    except: os._exit(1)
 
 def launch_ghost_box(target_args):
-    # --- 1. INITIALIZATION MESSAGES ---
-    print("\n[!] INITIALIZING GHOST BOX SENTINELS...")
-    
-    lockdown_status = enable_kernel_lockdown()
-    print(f"[+] Kernel Lockdown: {'ACTIVATED' if lockdown_status else 'ALREADY ACTIVE/UNSUPPORTED'}")
+    print("\n[!] VIRTUALIZING DISPLAY ENVIRONMENT...")
 
-    script_dir = os.path.dirname(os.path.realpath(__file__))
-    seccomp_path = os.path.join(script_dir, "seccomp.bpf")
-    if os.path.exists(seccomp_path):
-        print("[+] Seccomp Sentinel: DETECTED & ACTIVE")
-    else:
-        print("[FATAL] Seccomp Sentinel: MISSING!")
+    if not shutil.which("cage"):
+        print("[!] ERROR: 'cage' not found. Run your setup script first.")
         sys.exit(1)
 
-    print("[+] Landlock LSM: ENFORCED via Syscall Filtering")
-    print("[+] Amnesic Namespaces: ACTIVE (Volatile RAM Mode)")
-
-    # --- 2. PATH RESOLUTION ---
+    # Host Variables
+    wayland_host = os.environ.get("WAYLAND_DISPLAY", "wayland-0")
+    xdg_runtime = os.environ.get("XDG_RUNTIME_DIR")
+    
     original_bin = target_args[0]
     full_path = shutil.which(original_bin)
-    if not full_path:
-        print(f"[!] Error: {original_bin} not found.")
+    if not full_path: 
+        print(f"[!] Error: Binary {original_bin} not found.")
         sys.exit(1)
 
-    bin_name = os.path.basename(full_path)
-    wayland_display = os.environ.get("WAYLAND_DISPLAY")
-    xdg_runtime = os.environ.get("XDG_RUNTIME_DIR")
-
-    if not wayland_display or not xdg_runtime:
-        print("[!] Error: Wayland session not detected.")
-        sys.exit(1)
-
-    # --- 3. THE BWRAP COMMAND ---
+    # --- THE SECURE BWRAP COMMAND ---
     bwrap_cmd = [
         "bwrap",
-        "--unshare-all", "--share-net", "--new-session", "--die-with-parent",
-        "--tmpfs", "/",            # Root is in RAM
+        "--unshare-all",    # Total namespace isolation
+        "--share-net",      # Keep internet for browsers
+        "--new-session", 
+        "--die-with-parent",
+        
+        # 1. Clean Filesystem
+        "--tmpfs", "/", 
         "--proc", "/proc",
         "--dev", "/dev",
-        "--tmpfs", "/dev/shm",     # Volatile Shared Memory for Firefox
+        "--tmpfs", "/dev/shm", 
+        "--tmpfs", "/tmp",       
+        "--dir", "/tmp/.X11-unix",
+        
+        # 2. Core OS Bindings (Read-Only)
+        "--ro-bind", "/sys", "/sys", 
         "--ro-bind", "/usr", "/usr",
         "--ro-bind", "/bin", "/bin",
         "--ro-bind", "/lib", "/lib",
@@ -80,32 +58,50 @@ def launch_ghost_box(target_args):
         "--ro-bind", "/etc/fonts", "/etc/fonts",
         "--ro-bind", "/etc/resolv.conf", "/etc/resolv.conf",
         "--ro-bind-try", "/etc/machine-id", "/etc/machine-id",
-        "--bind", os.path.join(xdg_runtime, wayland_display), f"/run/user/1000/{wayland_display}",
+        
+        # 3. The "Bridge"
+        # Mount the host socket as 'host-wayland-0' to avoid "resource busy"
+        "--tmpfs", "/run/user/1000",
+        "--bind", os.path.join(xdg_runtime, wayland_host), "/run/user/1000/host-wayland-0",
+        
+        # 4. Identity Strip
         "--unshare-user", "--uid", "1000", "--gid", "1000",
-        "--tmpfs", "/home/ghost",   # Home is in RAM
+        "--tmpfs", "/home/ghost",
+        
+        # 5. Environment Sanitization
+        "--clearenv",
         "--setenv", "HOME", "/home/ghost",
-        "--setenv", "WAYLAND_DISPLAY", wayland_display,
-        "--setenv", "MOZ_ENABLE_WAYLAND", "1",
         "--setenv", "XDG_RUNTIME_DIR", "/run/user/1000",
-        "--as-pid-1",
-        "--seccomp", "3",           # Pass the Sentinel BPF
-        full_path
+        
+        # POINT CAGE TO THE RENAMED HOST SOCKET
+        "--setenv", "WAYLAND_DISPLAY", "host-wayland-0", 
+        
+        # DISABLE XWAYLAND TO STOP THE ABSTRACT SOCKET COLLISION
+        "--setenv", "WLR_XWAYLAND", "0", 
+        
+        "--setenv", "PATH", "/usr/bin:/bin",
+        "--setenv", "XDG_DATA_DIRS", "/usr/local/share:/usr/share",
+        "--setenv", "MOZ_ENABLE_WAYLAND", "1",
+        
+        "--hostname", "ghostbox",
+        
+        # 6. Proxy Launch
+        "cage", "-d", "-m", "last", "--", full_path
     ]
 
-    print(f"[*] DEPLOYING GHOSTBOX: {bin_name}\n")
+    bwrap_cmd.extend(target_args[1:])
+
+    print(f"[*] PROXY LAYER: Cage")
+    print(f"[*] TARGET APP: {os.path.basename(full_path)}")
+    print("[+] Hardware & KDE Fingerprint: SPOOFED")
     
     try:
-        with open(seccomp_path, "rb") as seccomp_file:
-            subprocess.run(bwrap_cmd + target_args[1:], 
-                           preexec_fn=harden_process, 
-                           pass_fds=[seccomp_file.fileno()])
+        subprocess.run(bwrap_cmd, preexec_fn=harden_process)
     except Exception as e:
         print(f"[!] Launch Failure: {e}")
     finally:
-        print("\n[*] BOX DISSOLVED. AMNESIA COMPLETE.")
+        print("\n[*] GHOST BOX CLOSED.")
 
 if __name__ == "__main__":
-    if len(sys.argv) < 2:
-        print("Usage: python3 ghostbox.py <app>")
-        sys.exit(1)
+    if len(sys.argv) < 2: sys.exit(1)
     launch_ghost_box(sys.argv[1:])
