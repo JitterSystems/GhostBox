@@ -73,7 +73,7 @@ Privilege Death: Uses NO_NEW_PRIVS to ensure that even if an app finds a vulnera
 
 🛑 Important Considerations
 
-Network: Uses --share-net. Your identity is hidden, but your IP is visible to the destination. Use a VPN on the host for total anonymity.
+Network: Uses --share-net. Your identity is hidden, but your IP is visible to the destination. Use a Mixnet or TOR on the host to achieve even more anonymity
 
 Sudo Requirement: ghostbox.py requires a brief sudo prompt at launch to enable Kernel Lockdown. Once the kernel is locked and the sandbox is built, the application runs as a standard, unprivileged user.
 
