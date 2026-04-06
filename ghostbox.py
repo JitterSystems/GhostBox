@@ -11,6 +11,7 @@ SIGKILL = 9
 
 def harden_process():
     try:
+        # Ensures if the Python launcher dies, the sandbox is killed by the kernel
         libc = ctypes.CDLL('libc.so.6')
         libc.prctl(PR_SET_PDEATHSIG, SIGKILL)
     except: os._exit(1)
@@ -18,29 +19,43 @@ def harden_process():
 def launch_ghost_box(target_args):
     print("\n[!] VIRTUALIZING DISPLAY ENVIRONMENT...")
 
-    if not shutil.which("cage"):
-        print("[!] ERROR: 'cage' not found. Run your setup script first.")
+    bpf_path = os.path.abspath("seccomp.bpf")
+    if not os.path.exists(bpf_path):
+        print("[!] FATAL: 'seccomp.bpf' not found!")
         sys.exit(1)
 
-    # Host Variables
+    if not shutil.which("cage"):
+        print("[!] ERROR: 'cage' not found.")
+        sys.exit(1)
+
     wayland_host = os.environ.get("WAYLAND_DISPLAY", "wayland-0")
     xdg_runtime = os.environ.get("XDG_RUNTIME_DIR")
     
+    # Path Detection for Browsers
     original_bin = target_args[0]
     full_path = shutil.which(original_bin)
     if not full_path: 
         print(f"[!] Error: Binary {original_bin} not found.")
         sys.exit(1)
+    
+    bin_dir = os.path.dirname(os.path.realpath(full_path))
 
-    # --- THE SECURE BWRAP COMMAND ---
+    # The Pipe Bridge for BPF Data
+    r, w = os.pipe()
+    os.set_inheritable(r, True)
+    with open(bpf_path, "rb") as f:
+        bpf_data = f.read()
+
     bwrap_cmd = [
         "bwrap",
-        "--unshare-all",    # Total namespace isolation
-        "--share-net",      # Keep internet for browsers
-        "--new-session", 
-        "--die-with-parent",
+        "--unshare-all",     # Isolate Network, PID, IPC, UTS, and User namespaces
+        "--share-net",       # Allow network access
+        "--new-session",     # Disconnect from terminal session
+        "--die-with-parent", 
         
-        # 1. Clean Filesystem
+        "--seccomp", str(r), # Load the BPF Sentinel via Pipe
+        
+        # 1. AMNESIC ROOT (Everything is in RAM)
         "--tmpfs", "/", 
         "--proc", "/proc",
         "--dev", "/dev",
@@ -48,8 +63,16 @@ def launch_ghost_box(target_args):
         "--tmpfs", "/tmp",       
         "--dir", "/tmp/.X11-unix",
         
-        # 2. Core OS Bindings (Read-Only)
-        "--ro-bind", "/sys", "/sys", 
+        # 2. HARDWARE & BUS CLOAKING (The Anti-Fingerprint Layer)
+        "--tmpfs", "/sys",
+        "--dir", "/sys/bus/pci/devices", # Wipes PCI bus info
+        "--dir", "/sys/bus/usb/devices", # Wipes USB bus info
+        "--dir", "/sys/class/dmi",       # Wipes BIOS/Serial info
+        "--dir", "/sys/firmware",        # Wipes UEFI info
+        "--ro-bind-try", "/sys/dev", "/sys/dev",
+        "--ro-bind-try", "/sys/devices/system/cpu", "/sys/devices/system/cpu",
+        
+        # 3. CORE OS & APP BINDINGS (Read-Only)
         "--ro-bind", "/usr", "/usr",
         "--ro-bind", "/bin", "/bin",
         "--ro-bind", "/lib", "/lib",
@@ -57,49 +80,47 @@ def launch_ghost_box(target_args):
         "--ro-bind", "/etc/ssl", "/etc/ssl",
         "--ro-bind", "/etc/fonts", "/etc/fonts",
         "--ro-bind", "/etc/resolv.conf", "/etc/resolv.conf",
-        "--ro-bind-try", "/etc/machine-id", "/etc/machine-id",
+        "--ro-bind-try", bin_dir, bin_dir, 
+        "--tmpfs", "/etc/machine-id",    # Volatile Machine ID
         
-        # 3. The "Bridge"
-        # Mount the host socket as 'host-wayland-0' to avoid "resource busy"
+        # 4. WAYLAND BRIDGE (Display Isolation)
         "--tmpfs", "/run/user/1000",
         "--bind", os.path.join(xdg_runtime, wayland_host), "/run/user/1000/host-wayland-0",
         
-        # 4. Identity Strip
+        # 5. IDENTITY STRIP
         "--unshare-user", "--uid", "1000", "--gid", "1000",
-        "--tmpfs", "/home/ghost",
+        "--tmpfs", "/home/ghost",        # Disposable Home directory
+        "--tmpfs", "/run/dbus",          # Sever D-Bus fingerprinting
         
-        # 5. Environment Sanitization
+        # 6. ENVIRONMENT SANITIZATION
         "--clearenv",
         "--setenv", "HOME", "/home/ghost",
         "--setenv", "XDG_RUNTIME_DIR", "/run/user/1000",
-        
-        # POINT CAGE TO THE RENAMED HOST SOCKET
         "--setenv", "WAYLAND_DISPLAY", "host-wayland-0", 
-        
-        # DISABLE XWAYLAND TO STOP THE ABSTRACT SOCKET COLLISION
         "--setenv", "WLR_XWAYLAND", "0", 
-        
-        "--setenv", "PATH", "/usr/bin:/bin",
-        "--setenv", "XDG_DATA_DIRS", "/usr/local/share:/usr/share",
+        "--setenv", "PATH", "/usr/bin:/bin:" + bin_dir,
         "--setenv", "MOZ_ENABLE_WAYLAND", "1",
         
-        "--hostname", "ghostbox",
+        # GPU SPOOFING
+        "--setenv", "WLR_RENDERER", "pixman",
+        "--setenv", "LIBGL_ALWAYS_SOFTWARE", "1",
+        "--setenv", "GALLIUM_DRIVER", "llvmpipe",
         
-        # 6. Proxy Launch
+        "--hostname", "ghostbox",
         "cage", "-d", "-m", "last", "--", full_path
     ]
 
     bwrap_cmd.extend(target_args[1:])
 
-    print(f"[*] PROXY LAYER: Cage")
-    print(f"[*] TARGET APP: {os.path.basename(full_path)}")
-    print("[+] Hardware & KDE Fingerprint: SPOOFED")
-    
+    os.write(w, bpf_data)
+    os.close(w)
+
     try:
-        subprocess.run(bwrap_cmd, preexec_fn=harden_process)
+        subprocess.run(bwrap_cmd, pass_fds=(r,), preexec_fn=harden_process)
     except Exception as e:
         print(f"[!] Launch Failure: {e}")
     finally:
+        os.close(r)
         print("\n[*] GHOST BOX CLOSED.")
 
 if __name__ == "__main__":
