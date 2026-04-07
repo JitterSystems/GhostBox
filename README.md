@@ -12,7 +12,7 @@ Wall	Component	Protection Level	Technical Detail
 
 4.	Kernel Lockdown	Total	Forces Integrity Lockdown to prevent Root-level memory modifications.
 
-BONUS Ones >>  	Hardware Cloak	High	Hides /sys. Masks CPU, Motherboard, and Battery IDs.
+BONUS Ones >>  	Hardware Cloak	High	Hides /sys. Masks GPU, Motherboard, PCI etc.
 
 🛠️ Requirements & Dependencies
 
