@@ -1,5 +1,7 @@
 🛡️ Ghostbox: The Obsidian Node Sandbox 🌑
 
+Beta Mode
+
 Ghostbox is an ultra-hardened, amnesic application sandbox for Linux. It creates a "digital vacuum" where applications are blind to your real OS, hardware, and identity. By utilizing a 4-Wall Defense System, it ensures that any application running inside has zero persistence and zero visibility into the host system.
 🚀 The 4-Wall Defense
 Wall	Component	Protection Level	Technical Detail
