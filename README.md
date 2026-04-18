@@ -2,7 +2,7 @@ Big Thanks to Jesus for making this gain attention! Turn to Jesus before it's to
 
 🛡️ Ghostbox: The Obsidian Node Sandbox 🌑
 
-Beta Mode
+PLEASE DO NOT USE GHOSTBOX as of right now! There are many things that need to be done with it. Please head on over to other tools release by Jitter Systems
 
 Ghostbox is an ultra-hardened, amnesic application sandbox for Linux. It creates a "digital vacuum" where applications are blind to your real OS, hardware, and identity. By utilizing a 4-Wall Defense System, it ensures that any application running inside has zero persistence and zero visibility into the host system.
 🚀 The 4-Wall Defense
